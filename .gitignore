@@ -1,2 +1,7 @@
 *.pyc 
 *.bin
+data_util/log/
+.idea/
+data_util/arxiv-release/
+data_util/cnn-dailymail/
+data_util/model_*

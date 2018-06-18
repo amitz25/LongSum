@@ -4,9 +4,6 @@ from __future__ import unicode_literals, print_function, division
 
 import sys
 
-reload(sys)
-sys.setdefaultencoding('utf8')
-
 import os
 import time
 
@@ -16,9 +13,9 @@ from torch.autograd import Variable
 from data_util.batcher import Batcher
 from data_util.data import Vocab
 from data_util import data, config
-from model import Model
+from training_ptr_gen.model import Model
 from data_util.utils import write_for_rouge, rouge_eval, rouge_log
-from train_util import get_input_from_batch
+from training_ptr_gen.train_util import get_input_from_batch
 
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
@@ -126,7 +123,7 @@ class BeamSearch(object):
                       state=(dec_h[0], dec_c[0]),
                       context = c_t_0[0],
                       coverage=(coverage_t_0[0] if config.is_coverage else None))
-                 for _ in xrange(config.beam_size)]
+                 for _ in range(config.beam_size)]
         results = []
         steps = 0
         while steps < config.max_dec_steps and len(results) < config.beam_size:
@@ -170,13 +167,13 @@ class BeamSearch(object):
 
             all_beams = []
             num_orig_beams = 1 if steps == 0 else len(beams)
-            for i in xrange(num_orig_beams):
+            for i in range(num_orig_beams):
                 h = beams[i]
                 state_i = (dec_h[i], dec_c[i])
                 context_i = c_t[i]
                 coverage_i = (coverage_t[i] if config.is_coverage else None)
 
-                for j in xrange(config.beam_size * 2):  # for each of the top 2*beam_size hyps:
+                for j in range(config.beam_size * 2):  # for each of the top 2*beam_size hyps:
                     new_beam = h.extend(token=topk_ids[i, j].data[0],
                                    log_prob=topk_log_probs[i, j].data[0],
                                    state=state_i,
