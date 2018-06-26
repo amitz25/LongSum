@@ -5,16 +5,16 @@ import time
 
 import tensorflow as tf
 import torch
-from model.model import Model
+from nn.model import Model
 from torch.nn.utils import clip_grad_norm
 
-from model.custom_adagrad import AdagradCustom
+from nn.custom_adagrad import AdagradCustom
 
 from data_util import config
 from data_util.batcher import Batcher
 from data_util.data import Vocab
 from data_util.utils import calc_running_avg_loss
-from model.train_util import get_input_from_batch, get_output_from_batch
+from nn.train_util import get_input_from_batch, get_output_from_batch
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
 
@@ -127,14 +127,14 @@ class Train(object):
             running_avg_loss = calc_running_avg_loss(loss, running_avg_loss, self.summary_writer, iter)
             iter += 1
 
-            if iter % 100 == 0:
+            if iter % 5000 == 0:
                 self.summary_writer.flush()
             print_interval = 1000
             if iter % print_interval == 0:
                 print('steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
                                                                            time.time() - start, loss))
                 start = time.time()
-            if iter % 5000 == 0:
+            if iter % 5 == 0:
                 self.save_model(running_avg_loss, iter)
 
 if __name__ == '__main__':

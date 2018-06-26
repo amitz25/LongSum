@@ -2,7 +2,7 @@ from __future__ import unicode_literals, print_function, division
 
 import os
 import time
-import sys
+import argparse
 
 import tensorflow as tf
 import torch
@@ -12,8 +12,8 @@ from data_util.batcher import Batcher
 from data_util.data import Vocab
 
 from data_util.utils import calc_running_avg_loss
-from model.train_util import get_input_from_batch, get_output_from_batch
-from model.model import Model
+from nn.train_util import get_input_from_batch, get_output_from_batch
+from nn.model import Model
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
 
@@ -79,7 +79,7 @@ class Evaluate(object):
 
             if iter % 100 == 0:
                 self.summary_writer.flush()
-            print_interval = 1000
+            print_interval = 1
             if iter % print_interval == 0:
                 print('steps %d, seconds for %d batch: %.2f , loss: %f' % (
                 iter, print_interval, time.time() - start, running_avg_loss))
@@ -88,8 +88,10 @@ class Evaluate(object):
 
 
 if __name__ == '__main__':
-    model_filename = sys.argv[1]
-    eval_processor = Evaluate(model_filename)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('model_path', type=str)
+    args = parser.parse_args()
+    eval_processor = Evaluate(args.model_path)
     eval_processor.run_eval()
 
 
