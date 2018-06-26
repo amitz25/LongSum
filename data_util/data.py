@@ -4,6 +4,7 @@ import glob
 import random
 import struct
 import csv
+import json
 from tensorflow.core.example import example_pb2
 
 # <s> and </s> are used in the data files to segment the abstracts into sentences. They don't receive vocab ids.
@@ -85,11 +86,15 @@ def example_generator(data_path, single_pass):
     for f in filelist:
       reader = open(f, 'rb')
       while True:
-        len_bytes = reader.read(8)
-        if not len_bytes: break # finished reading this file
-        str_len = struct.unpack('q', len_bytes)[0]
-        example_str = struct.unpack('%ds' % str_len, reader.read(str_len))[0]
-        yield example_pb2.Example.FromString(example_str)
+        lines = reader.read().splitlines()
+        for line in lines:
+            line = json.loads(line)
+            yield ' '.join(line['sections'])
+        # len_bytes = reader.read(8)
+        # if not len_bytes: break # finished reading this file
+        # str_len = struct.unpack('q', len_bytes)[0]
+        # example_str = struct.unpack('%ds' % str_len, reader.read(str_len))[0]
+        # yield example_pb2.Example.FromString(example_str)
     if single_pass:
       print("example_generator completed reading all datafiles. No more data.")
       break

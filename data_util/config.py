@@ -2,11 +2,13 @@ import os
 
 root_dir = os.path.dirname(__file__)
 
-#train_data_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/train.bin")
-train_data_path = os.path.join(root_dir, "cnn-dailymail", "finished_files", "chunked", "train_*")
-eval_data_path = os.path.join(root_dir, "cnn-dailymail", "finished_files", "val.bin")
-decode_data_path = os.path.join(root_dir, "cnn-dailymail", "finished_files", "test.bin")
-vocab_path = os.path.join(root_dir, "cnn-dailymail", "finished_files", "vocab")
+arxiv_dataset = True
+dataset_name = 'arxiv-release' if arxiv_dataset else 'PubMed'
+
+train_data_path = os.path.join(root_dir, dataset_name, "chunked", "train_*")
+eval_data_path = os.path.join(root_dir, dataset_name, "chunked", "val_*")
+decode_data_path = os.path.join(root_dir, dataset_name, "chunked", "test_*")
+vocab_path = os.path.join(root_dir, dataset_name, "vocab")
 log_root = os.path.join(root_dir, "log")
 
 # Hyperparameters
