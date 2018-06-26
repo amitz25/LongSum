@@ -5,16 +5,16 @@ import time
 
 import tensorflow as tf
 import torch
-from training_ptr_gen.model import Model
+from model.model import Model
 from torch.nn.utils import clip_grad_norm
 
-from training_ptr_gen.custom_adagrad import AdagradCustom
+from model.custom_adagrad import AdagradCustom
 
 from data_util import config
 from data_util.batcher import Batcher
 from data_util.data import Vocab
 from data_util.utils import calc_running_avg_loss
-from training_ptr_gen.train_util import get_input_from_batch, get_output_from_batch
+from model.train_util import get_input_from_batch, get_output_from_batch
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
 

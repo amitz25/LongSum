@@ -13,9 +13,9 @@ from torch.autograd import Variable
 from data_util.batcher import Batcher
 from data_util.data import Vocab
 from data_util import data, config
-from training_ptr_gen.model import Model
+from model.model import Model
 from data_util.utils import write_for_rouge, rouge_eval, rouge_log
-from training_ptr_gen.train_util import get_input_from_batch
+from model.train_util import get_input_from_batch
 
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
