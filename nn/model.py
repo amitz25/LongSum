@@ -52,12 +52,24 @@ class Encoder(nn.Module):
     def forward(self, input, seq_lens):
         embedded = self.embedding(input)
 
-        packed = pack_padded_sequence(embedded, seq_lens, batch_first=True)
+        embedded_flat = embedded.view(-1, embedded.shape[2], embedded.shape[3])
+        sorted_seq_lens, sorted_seq_lens_ind = torch.LongTensor(seq_lens).view(-1).sort(descending=True)
+
+        input_to_words_encoder = embedded_flat.clone()[sorted_seq_lens_ind, :, :]
+        packed = pack_padded_sequence(input_to_words_encoder, sorted_seq_lens, batch_first=True)
+
         output, hidden = self.lstm(packed)
 
         h, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
-        h = h.contiguous()
-        max_h, _ = h.max(dim=1)
+
+        unsorted_h = h.clone()
+        unsorted_h[sorted_seq_lens_ind] = h
+
+        #hidden[0][:, sorted_seq_lens_ind, :] = hidden[0].clone()
+        #hidden[1][:, sorted_seq_lens_ind, :] = hidden[1].clone()
+
+        unsorted_h = unsorted_h.contiguous()
+        max_h, _ = unsorted_h.max(dim=1)
 
         return h, hidden, max_h
 
@@ -149,6 +161,7 @@ class Decoder(nn.Module):
 
         y_t_1_embd = self.embedding(y_t_1)
         x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
+
         lstm_out, s_t = self.lstm(x.unsqueeze(1), s_t_1)
 
         h_decoder, c_decoder = s_t
