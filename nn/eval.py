@@ -74,7 +74,7 @@ class Evaluate(object):
         while batch is not None:
             loss = self.eval_one_batch(batch)
 
-            running_avg_loss = calc_running_avg_loss(loss, running_avg_loss, self.summary_writer, iter)
+            running_avg_loss = calc_running_avg_loss(loss.item(), running_avg_loss, self.summary_writer, iter)
             iter += 1
 
             if iter % 100 == 0:

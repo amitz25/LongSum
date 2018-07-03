@@ -85,6 +85,9 @@ class BeamSearch(object):
             except ValueError:
                 decoded_words = decoded_words
 
+            print("===============SUMMARY=============")
+            print(' '.join(decoded_words))
+
             original_abstract_sents = batch.original_abstracts_sents[0]
 
             write_for_rouge(original_abstract_sents, decoded_words, counter,
@@ -174,8 +177,8 @@ class BeamSearch(object):
                 coverage_i = (coverage_t[i] if config.is_coverage else None)
 
                 for j in range(config.beam_size * 2):  # for each of the top 2*beam_size hyps:
-                    new_beam = h.extend(token=topk_ids[i, j].data[0],
-                                   log_prob=topk_log_probs[i, j].data[0],
+                    new_beam = h.extend(token=topk_ids[i, j].item(),
+                                   log_prob=topk_log_probs[i, j].item(),
                                    state=state_i,
                                    context=context_i,
                                    coverage=coverage_i)
