@@ -88,7 +88,7 @@ def example_generator(data_path, single_pass):
       lines = reader.read().splitlines()
       for line in lines:
           line = json.loads(line)
-          example = dict(article_text=' '.join(line['article_text']),
+          example = dict(article_sections=[' '.join(x) for x in line['sections']],
                          abstract_text=' '.join(line['abstract_text']))
           yield example
 
@@ -97,20 +97,26 @@ def example_generator(data_path, single_pass):
       break
 
 
-def article2ids(article_words, vocab):
-  ids = []
+def article2ids(article_sections, vocab):
+  res_ids = []
   oovs = []
   unk_id = vocab.word2id(UNKNOWN_TOKEN)
-  for w in article_words:
-    i = vocab.word2id(w)
-    if i == unk_id: # If w is OOV
-      if w not in oovs: # Add to list of OOVs
-        oovs.append(w)
-      oov_num = oovs.index(w) # This is 0 for the first article OOV, 1 for the second article OOV...
-      ids.append(vocab.size() + oov_num) # This is e.g. 50000 for the first article OOV, 50001 for the second...
-    else:
-      ids.append(i)
-  return ids, oovs
+
+  for section in article_sections:
+    ids = []
+    for w in section:
+      i = vocab.word2id(w)
+      if i == unk_id: # If w is OOV
+        if w not in oovs: # Add to list of OOVs
+          oovs.append(w)
+        oov_num = oovs.index(w) # This is 0 for the first article OOV, 1 for the second article OOV...
+        ids.append(vocab.size() + oov_num) # This is e.g. 50000 for the first article OOV, 50001 for the second...
+      else:
+        ids.append(i)
+
+    res_ids.append(ids)
+
+  return res_ids, oovs
 
 
 def abstract2ids(abstract_words, vocab, article_oovs):

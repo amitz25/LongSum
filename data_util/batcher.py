@@ -17,17 +17,28 @@ random.seed(1234)
 
 class Example(object):
 
-  def __init__(self, article, abstract_sentences, vocab):
+  def __init__(self, article_sections, abstract_sentences, vocab):
     # Get ids of special tokens
     start_decoding = vocab.word2id(data.START_DECODING)
     stop_decoding = vocab.word2id(data.STOP_DECODING)
 
+    section_words = []
+    self.enc_lens = []
+    self.enc_inputs = []
+    self.num_sections = len(section_words)
+
     # Process the article
-    article_words = article.split()
-    if len(article_words) > config.max_enc_steps:
-      article_words = article_words[:config.max_enc_steps]
-    self.enc_len = len(article_words) # store the length after truncation but before padding
-    self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+    for section in article_sections[:config.max_num_sections]:
+      words = section.split()
+      if len(words) > config.max_section_size:
+        words = words[:config.max_section_size]
+
+      self.enc_lens.append(len(words))
+      self.enc_inputs.append([vocab.word2id(w) for w in words]) # list of word ids; OOVs are represented by the id for UNK token
+
+      section_words.append(words)
+
+    self.max_enc_len = max(self.enc_lens)
 
     # Process the abstract
     abstract = ' '.join(abstract_sentences) # string
@@ -40,8 +51,8 @@ class Example(object):
 
     # If using pointer-generator mode, we need to store some extra info
     if config.pointer_gen:
-      # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
-      self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
+        # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
+      self.enc_inputs_extend_vocab, self.article_oovs = data.article2ids(section_words, vocab)
 
       # Get a verison of the reference summary where in-article OOVs are represented by their temporary article OOV id
       abs_ids_extend_vocab = data.abstract2ids(abstract_words, vocab, self.article_oovs)
@@ -50,7 +61,7 @@ class Example(object):
       _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, config.max_dec_steps, start_decoding, stop_decoding)
 
     # Store the original strings
-    self.original_article = article
+    self.original_article = article_sections
     self.original_abstract = abstract
     self.original_abstract_sents = abstract_sentences
 
@@ -73,13 +84,14 @@ class Example(object):
     while len(self.target) < max_len:
       self.target.append(pad_id)
 
+  def pad_seq(self, seq, max_len, pad_id):
+    return seq + [pad_id] * (max_len - len(seq))
 
-  def pad_encoder_input(self, max_len, pad_id):
-    while len(self.enc_input) < max_len:
-      self.enc_input.append(pad_id)
-    if config.pointer_gen:
-      while len(self.enc_input_extend_vocab) < max_len:
-        self.enc_input_extend_vocab.append(pad_id)
+  def pad_encoder_inputs(self, max_len, pad_id):
+    for i in range(self.num_sections):
+      self.enc_inputs[i] = self.pad_seq(self.enc_inputs[i], max_len, pad_id)
+      if config.pointer_gen:
+        self.enc_inputs_extend_vocab[i] = self.pad_seq(self.enc_inputs_extend_vocab[i], max_len, pad_id)
 
 
 class Batch(object):
@@ -93,24 +105,24 @@ class Batch(object):
 
   def init_encoder_seq(self, example_list):
     # Determine the maximum length of the encoder input sequence in this batch
-    max_enc_seq_len = max([ex.enc_len for ex in example_list])
+    max_enc_seq_len = max([ex.max_enc_len for ex in example_list])
 
     # Pad the encoder input sequences up to the length of the longest sequence
     for ex in example_list:
-      ex.pad_encoder_input(max_enc_seq_len, self.pad_id)
+      ex.pad_encoder_inputs(max_enc_seq_len, self.pad_id)
 
     # Initialize the numpy arrays
-    # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
-    self.enc_batch = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.int32)
-    self.enc_lens = np.zeros((self.batch_size), dtype=np.int32)
-    self.enc_padding_mask = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.float32)
+    self.enc_batch = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.int32)
+    self.enc_lens = np.zeros((self.batch_size, config.max_num_sections), dtype=np.int32)
+    self.enc_padding_mask = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
-      self.enc_batch[i, :] = ex.enc_input[:]
-      self.enc_lens[i] = ex.enc_len
-      for j in range(ex.enc_len):
-        self.enc_padding_mask[i][j] = 1
+      for j in range(len(ex.enc_inputs)):
+        self.enc_batch[i, j, :ex.enc_lens[j]] = ex.enc_inputs[j]
+        self.enc_lens[i, j] = ex.enc_lens[j]
+        for k in range(ex.enc_lens[j]):
+          self.enc_padding_mask[i][j][k] = 1
 
     # For pointer-generator mode, need to store some extra info
     if config.pointer_gen:
@@ -119,9 +131,10 @@ class Batch(object):
       # Store the in-article OOVs themselves
       self.art_oovs = [ex.article_oovs for ex in example_list]
       # Store the version of the enc_batch that uses the article OOV ids
-      self.enc_batch_extend_vocab = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.int32)
+      self.enc_batch_extend_vocab = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.int32)
       for i, ex in enumerate(example_list):
-        self.enc_batch_extend_vocab[i, :] = ex.enc_input_extend_vocab[:]
+        for j in range(ex.num_sections):
+          self.enc_batch_extend_vocab[i, j, :ex.enc_lens[j]] = ex.enc_inputs_extend_vocab[j][:]
 
   def init_decoder_seq(self, example_list):
     # Pad the inputs and targets
@@ -206,7 +219,7 @@ class Batcher(object):
 
     while True:
       try:
-        (article, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
+        (sections, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
@@ -217,7 +230,7 @@ class Batcher(object):
           raise Exception("single_pass mode is off but the example generator is out of data; error.")
 
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
-      example = Example(article, abstract_sentences, self._vocab) # Process into an Example.
+      example = Example(sections, abstract_sentences, self._vocab) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
 
   def fill_batch_queue(self):
@@ -232,7 +245,7 @@ class Batcher(object):
         inputs = []
         for _ in range(self.batch_size * self._bucketing_cache_size):
           inputs.append(self._example_queue.get())
-        inputs = sorted(inputs, key=lambda inp: inp.enc_len, reverse=True) # sort by length of encoder sequence
+        inputs = sorted(inputs, key=lambda inp: inp.max_enc_len, reverse=True) # sort by length of encoder sequence
 
         # Group the sorted Examples into batches, optionally shuffle the batches, and place in the batch queue.
         batches = []
@@ -269,8 +282,4 @@ class Batcher(object):
   def text_generator(self, example_generator):
     while True:
       e = next(example_generator) # e is a tf.Example
-      if len(e['article_text']) == 0: # See https://github.com/abisee/pointer-generator/issues/1
-        #tf.logging.warning('Found an example with empty article text. Skipping it.')
-        continue
-      else:
-        yield (str(e['article_text']), str(e['abstract_text']))
+      yield (e['article_sections'], e['abstract_text'])
