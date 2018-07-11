@@ -65,8 +65,9 @@ class Encoder(nn.Module):
         unsorted_h = h.clone()
         unsorted_h[sorted_seq_lens_ind] = h
 
-        #hidden[0][:, sorted_seq_lens_ind, :] = hidden[0].clone()
-        #hidden[1][:, sorted_seq_lens_ind, :] = hidden[1].clone()
+        hidden_0_clone, hidden_1_clone = hidden[0].clone(), hidden[1].clone()
+        hidden[0][:, sorted_seq_lens_ind, :] = hidden_0_clone
+        hidden[1][:, sorted_seq_lens_ind, :] = hidden_1_clone
 
         unsorted_h = unsorted_h.contiguous()
         max_h, _ = unsorted_h.max(dim=1)
