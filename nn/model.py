@@ -94,8 +94,6 @@ class SectionAttention(nn.Module):
     def __init__(self):
         super(SectionAttention, self).__init__()
         self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
-        if config.is_coverage:
-            self.W_c = nn.Linear(1, config.hidden_dim * 2, bias=False)
         self.decode_proj = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
         self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
 
@@ -107,10 +105,6 @@ class SectionAttention(nn.Module):
         dec_fea_expanded = dec_fea.unsqueeze(1).expand(b, t_k, n).contiguous()
 
         att_features = encoder_feature + dec_fea_expanded # B * t_k x 2*hidden_dim
-        if config.is_coverage:
-            coverage_input = coverage.view(-1, 1)  # B * t_k x 1
-            coverage_feature = self.W_c(coverage_input)  # B * t_k x 2*hidden_dim
-            att_features = att_features + coverage_feature
 
         e = F.tanh(att_features) # B * t_k x 2*hidden_dim
         scores = self.v(e)  # B * t_k x 1
@@ -120,10 +114,6 @@ class SectionAttention(nn.Module):
         normalization_factor = attn_dist_.sum(1, keepdim=True)
         attn_dist = attn_dist_ / normalization_factor
         attn_dist = attn_dist.view(-1, t_k)  # B x t_k
-
-        # if config.is_coverage:
-        #     coverage = coverage.view(-1, t_k)
-        #     coverage = coverage + attn_dist
 
         return attn_dist
 
@@ -147,7 +137,7 @@ class WordAttention(nn.Module):
 
         att_features = encoder_feature + dec_fea_expanded # B * t_k x 2*hidden_dim
         if config.is_coverage:
-            coverage_input = coverage.view(-1, 1)  # B * t_k x 1
+            coverage_input = coverage.unsqueeze(-1)
             coverage_feature = self.W_c(coverage_input)  # B * t_k x 2*hidden_dim
             att_features = att_features + coverage_feature
 
@@ -176,8 +166,7 @@ class WordAttention(nn.Module):
         attn_dist = attn_dist.view(b, -1)  # B x t_k * s
 
         if config.is_coverage:
-            coverage = coverage.view(-1, t_k)
-            coverage = coverage + attn_dist
+            coverage += attn_dist.view(*coverage.shape)
 
         return c_t, attn_dist, coverage
 
