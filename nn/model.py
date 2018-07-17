@@ -90,24 +90,21 @@ class ReduceState(nn.Module):
 
         return (hidden_reduced_h.unsqueeze(0), hidden_reduced_c.unsqueeze(0)) # h, c dim = 1 x b x hidden_dim
 
-class Attention(nn.Module):
+class SectionAttention(nn.Module):
     def __init__(self):
-        super(Attention, self).__init__()
-        # attention
+        super(SectionAttention, self).__init__()
         self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
         if config.is_coverage:
             self.W_c = nn.Linear(1, config.hidden_dim * 2, bias=False)
         self.decode_proj = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
         self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
 
-    def forward(self, s_t_hat, h, enc_padding_mask, coverage):
+    def forward(self, s_t_hat, h, coverage):
         b, t_k, n = list(h.size())
-        h = h.view(-1, n)  # B * t_k x 2*hidden_dim
         encoder_feature = self.W_h(h)
 
         dec_fea = self.decode_proj(s_t_hat) # B x 2*hidden_dim
-        dec_fea_expanded = dec_fea.unsqueeze(1).expand(b, t_k, n).contiguous() # B x t_k x 2*hidden_dim
-        dec_fea_expanded = dec_fea_expanded.view(-1, n)  # B * t_k x 2*hidden_dim
+        dec_fea_expanded = dec_fea.unsqueeze(1).expand(b, t_k, n).contiguous()
 
         att_features = encoder_feature + dec_fea_expanded # B * t_k x 2*hidden_dim
         if config.is_coverage:
@@ -117,18 +114,66 @@ class Attention(nn.Module):
 
         e = F.tanh(att_features) # B * t_k x 2*hidden_dim
         scores = self.v(e)  # B * t_k x 1
-        scores = scores.view(-1, t_k)  # B x t_k
+        scores = scores.squeeze(-1)  # B x t_k
 
-        attn_dist_ = F.softmax(scores, dim=1)*enc_padding_mask # B x t_k
+        attn_dist_ = F.softmax(scores, dim=1)
+        normalization_factor = attn_dist_.sum(1, keepdim=True)
+        attn_dist = attn_dist_ / normalization_factor
+        attn_dist = attn_dist.view(-1, t_k)  # B x t_k
+
+        # if config.is_coverage:
+        #     coverage = coverage.view(-1, t_k)
+        #     coverage = coverage + attn_dist
+
+        return attn_dist
+
+
+class WordAttention(nn.Module):
+    def __init__(self):
+        super(WordAttention, self).__init__()
+        # attention
+        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
+        if config.is_coverage:
+            self.W_c = nn.Linear(1, config.hidden_dim * 2, bias=False)
+        self.decode_proj = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
+        self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
+
+    def forward(self, s_t_hat, h, coverage, enc_padding_mask, beta):
+        b, s, t_k, n = list(h.size())
+        encoder_feature = self.W_h(h)
+
+        dec_fea = self.decode_proj(s_t_hat) # B x 2*hidden_dim
+        dec_fea_expanded = dec_fea.unsqueeze(1).unsqueeze(2).expand(b, s, t_k, n).contiguous()
+
+        att_features = encoder_feature + dec_fea_expanded # B * t_k x 2*hidden_dim
+        if config.is_coverage:
+            coverage_input = coverage.view(-1, 1)  # B * t_k x 1
+            coverage_feature = self.W_c(coverage_input)  # B * t_k x 2*hidden_dim
+            att_features = att_features + coverage_feature
+
+        e = F.tanh(att_features) # B * t_k x 2*hidden_dim
+        scores = self.v(e)  # B x s x t_k x 1
+        scores = scores.squeeze(-1)  # B x s X t_k
+
+        # Use section weighting (beta)
+        weighted_scores = beta.unsqueeze(-1) * scores
+
+        # Flatten view for softmax on all words
+        weighted_scores = weighted_scores.view(config.batch_size, weighted_scores.shape[1] * weighted_scores.shape[2])
+        enc_padding_mask = enc_padding_mask.view(config.batch_size,
+                                                 enc_padding_mask.shape[1] * enc_padding_mask.shape[2])
+
+
+        attn_dist_ = F.softmax(weighted_scores, dim=1) * enc_padding_mask
         normalization_factor = attn_dist_.sum(1, keepdim=True)
         attn_dist = attn_dist_ / normalization_factor
 
         attn_dist = attn_dist.unsqueeze(1)  # B x 1 x t_k
-        h = h.view(-1, t_k, n)  # B x t_k x 2*hidden_dim
+        h = h.contiguous().view(-1, t_k * s, n)  # B x t_k x 2*hidden_dim
         c_t = torch.bmm(attn_dist, h)  # B x 1 x n
         c_t = c_t.view(-1, config.hidden_dim * 2)  # B x 2*hidden_dim
 
-        attn_dist = attn_dist.view(-1, t_k)  # B x t_k
+        attn_dist = attn_dist.view(b, -1)  # B x t_k * s
 
         if config.is_coverage:
             coverage = coverage.view(-1, t_k)
@@ -136,10 +181,29 @@ class Attention(nn.Module):
 
         return c_t, attn_dist, coverage
 
+class SectionEncoder(nn.Module):
+    def __init__(self):
+        super(SectionEncoder, self).__init__()
+
+        self.lstm = nn.LSTM(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
+        init_lstm_wt(self.lstm)
+
+    def forward(self, input):
+        hidden = input[0].view(config.batch_size, config.max_num_sections, input[0].shape[2])
+        cell = input[1].view(config.batch_size, config.max_num_sections, input[1].shape[2])
+
+        # TODO: Make sure we don't need just hidden
+        h_c = torch.cat((hidden, cell), dim=2)
+        output, hidden = self.lstm(h_c)
+
+        return output, hidden
+
+
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-        self.attention_network = Attention()
+        self.word_attention = WordAttention()
+        self.section_attention = SectionAttention()
         # decoder
         self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
         init_wt_normal(self.embedding.weight)
@@ -157,9 +221,8 @@ class Decoder(nn.Module):
         self.out2 = nn.Linear(config.hidden_dim, config.vocab_size)
         init_linear_wt(self.out2)
 
-    def forward(self, y_t_1, s_t_1, encoder_outputs, enc_padding_mask,
+    def forward(self, y_t_1, s_t_1, encoder_output, section_output, enc_padding_mask,
                 c_t_1, extra_zeros, enc_batch_extend_vocab, coverage):
-
         y_t_1_embd = self.embedding(y_t_1)
         x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
 
@@ -168,8 +231,13 @@ class Decoder(nn.Module):
         h_decoder, c_decoder = s_t
         s_t_hat = torch.cat((h_decoder.view(-1, config.hidden_dim),
                              c_decoder.view(-1, config.hidden_dim)), 1)  # B x 2*hidden_dim
-        c_t, attn_dist, coverage = self.attention_network(s_t_hat, encoder_outputs,
-                                                          enc_padding_mask, coverage)
+
+        # TODO: Use section padding if we support more than 4 sections
+        beta = self.section_attention(s_t_hat, section_output, coverage=coverage)
+        encoder_output = encoder_output.view(config.batch_size, config.max_num_sections, *encoder_output.shape[1:])
+        c_t, attn_dist, coverage = self.word_attention(s_t_hat, encoder_output,
+                                                       enc_padding_mask=enc_padding_mask, coverage=coverage,
+                                                       beta=beta)
 
         p_gen = None
         if config.pointer_gen:
@@ -192,6 +260,7 @@ class Decoder(nn.Module):
             if extra_zeros is not None:
                 vocab_dist_ = torch.cat([vocab_dist_, extra_zeros], 1)
 
+            enc_batch_extend_vocab = enc_batch_extend_vocab.view(*attn_dist_.shape)
             final_dist = vocab_dist_.scatter_add(1, enc_batch_extend_vocab, attn_dist_)
         else:
             final_dist = vocab_dist
@@ -201,27 +270,37 @@ class Decoder(nn.Module):
 class Model(object):
     def __init__(self, model_file_path=None, is_eval=False):
         encoder = Encoder()
+        section_encoder = SectionEncoder()
         decoder = Decoder()
         reduce_state = ReduceState()
+        section_reduce_state = ReduceState()
 
         # shared the embedding between encoder and decoder
         decoder.embedding.weight = encoder.embedding.weight
         if is_eval:
             encoder = encoder.eval()
+            section_encoder = section_encoder.eval()
             decoder = decoder.eval()
             reduce_state = reduce_state.eval()
+            section_reduce_state = section_reduce_state.eval()
 
         if use_cuda:
             encoder = encoder.cuda()
+            section_encoder = section_encoder.cuda()
             decoder = decoder.cuda()
             reduce_state = reduce_state.cuda()
+            section_reduce_state = section_reduce_state.cuda()
 
         self.encoder = encoder
+        self.section_encoder = section_encoder
         self.decoder = decoder
         self.reduce_state = reduce_state
+        self.section_reduce_state = section_reduce_state
 
         if model_file_path is not None:
             state = torch.load(model_file_path, map_location= lambda storage, location: storage)
             self.encoder.load_state_dict(state['encoder_state_dict'])
+            self.section_encoder.load_state_dict(state['section_encoder_state_dict'])
             self.decoder.load_state_dict(state['decoder_state_dict'], strict=False)
             self.reduce_state.load_state_dict(state['reduce_state_dict'])
+            self.section_reduce_state.load_state_dict(state['section_reduce_state_dict'])

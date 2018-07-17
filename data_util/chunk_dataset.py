@@ -1,4 +1,5 @@
 import argparse
+import json
 
 
 def split_file(path, output_path):
@@ -6,6 +7,10 @@ def split_file(path, output_path):
     lines = []
     f = open(path, 'r')
     for line in f:
+        parsed_line = json.loads(line)
+        if len(parsed_line['section_names']) <= 3:
+            continue
+
         lines.append(line)
         if len(lines) >= 67:
             open("%s_%d.txt" % (output_path, file_count), "w").write(''.join(lines))

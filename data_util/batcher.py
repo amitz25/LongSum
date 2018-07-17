@@ -25,7 +25,6 @@ class Example(object):
     section_words = []
     self.enc_lens = []
     self.enc_inputs = []
-    self.num_sections = len(section_words)
 
     # Process the article
     for section in article_sections[:config.max_num_sections]:
@@ -38,6 +37,7 @@ class Example(object):
 
       section_words.append(words)
 
+    self.num_sections = len(section_words)
     self.max_enc_len = max(self.enc_lens)
 
     # Process the abstract
@@ -117,9 +117,10 @@ class Batch(object):
     self.enc_padding_mask = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.float32)
 
     # Fill in the numpy arrays
+    # TODO: Verify that it's always at least 4 sections
     for i, ex in enumerate(example_list):
       for j in range(len(ex.enc_inputs)):
-        self.enc_batch[i, j, :ex.enc_lens[j]] = ex.enc_inputs[j]
+        self.enc_batch[i, j, :len(ex.enc_inputs[j])] = ex.enc_inputs[j]
         self.enc_lens[i, j] = ex.enc_lens[j]
         for k in range(ex.enc_lens[j]):
           self.enc_padding_mask[i][j][k] = 1
@@ -134,7 +135,7 @@ class Batch(object):
       self.enc_batch_extend_vocab = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.int32)
       for i, ex in enumerate(example_list):
         for j in range(ex.num_sections):
-          self.enc_batch_extend_vocab[i, j, :ex.enc_lens[j]] = ex.enc_inputs_extend_vocab[j][:]
+          self.enc_batch_extend_vocab[i, j, :len(ex.enc_inputs_extend_vocab[j][:])] = ex.enc_inputs_extend_vocab[j][:]
 
   def init_decoder_seq(self, example_list):
     # Pad the inputs and targets

@@ -39,8 +39,10 @@ class Train(object):
         state = {
             'iter': iter,
             'encoder_state_dict': self.model.encoder.state_dict(),
+            'section_encoder_state_dict': self.model.state_encoder.state_dict(),
             'decoder_state_dict': self.model.decoder.state_dict(),
             'reduce_state_dict': self.model.reduce_state.state_dict(),
+            'section_reduce_state_dict': self.model.section_reduce_state.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'current_loss': running_avg_loss
         }
@@ -50,8 +52,11 @@ class Train(object):
     def setup_train(self, model_file_path=None):
         self.model = Model(model_file_path)
 
-        params = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) + \
-                 list(self.model.reduce_state.parameters())
+        params = list(self.model.encoder.parameters()) + \
+                 list(self.model.section_encoder.parameters()) + \
+                 list(self.model.decoder.parameters()) + \
+                 list(self.model.reduce_state.parameters()) + \
+                 list(self.model.section_reduce_state.parameters())
         initial_lr = config.lr_coverage if config.is_coverage else config.lr
         self.optimizer = AdagradCustom(params, lr=initial_lr, initial_accumulator_value=config.adagrad_init_acc)
 
@@ -85,13 +90,16 @@ class Train(object):
         if config.use_maxpool_init_ctx:
             c_t_1 = max_encoder_output
 
+        section_outputs, section_hidden = self.model.section_encoder(s_t_1)
+        s_t_1 = self.model.section_reduce_state(section_hidden)
+
         step_losses = []
         for di in range(min(max_dec_len, config.max_dec_steps)):
             y_t_1 = dec_batch[:, di]  # Teacher forcing
-            final_dist, s_t_1,  c_t_1, attn_dist, p_gen, coverage = self.model.decoder(y_t_1, s_t_1,
-                                                        encoder_outputs, enc_padding_mask, c_t_1,
-                                                        extra_zeros, enc_batch_extend_vocab,
-                                                                           coverage)
+            final_dist, s_t_1, c_t_1, attn_dist, p_gen, coverage = self.model.decoder(y_t_1, s_t_1,
+                                                        encoder_outputs, section_outputs, enc_padding_mask,
+                                                        c_t_1, extra_zeros, enc_batch_extend_vocab,
+                                                        coverage)
             target = target_batch[:, di]
             gold_probs = torch.gather(final_dist, 1, target.unsqueeze(1)).squeeze()
             step_loss = -torch.log(gold_probs + config.eps)
@@ -109,12 +117,14 @@ class Train(object):
         loss.backward()
 
         clip_grad_norm(self.model.encoder.parameters(), config.max_grad_norm)
+        clip_grad_norm(self.model.section_encoder.parameters(), config.max_grad_norm)
         clip_grad_norm(self.model.decoder.parameters(), config.max_grad_norm)
         clip_grad_norm(self.model.reduce_state.parameters(), config.max_grad_norm)
+        clip_grad_norm(self.model.section_reduce_state.parameters(), config.max_grad_norm)
 
         self.optimizer.step()
 
-        return loss.data[0]
+        return loss.item()
 
     def trainIters(self, n_iters, model_file_path=None):
         iter, running_avg_loss = self.setup_train(model_file_path)
