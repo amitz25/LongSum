@@ -6,7 +6,7 @@ import time
 import tensorflow as tf
 import torch
 from nn.model import Model
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 from nn.custom_adagrad import AdagradCustom
 
@@ -39,7 +39,7 @@ class Train(object):
         state = {
             'iter': iter,
             'encoder_state_dict': self.model.encoder.state_dict(),
-            'section_encoder_state_dict': self.model.state_encoder.state_dict(),
+            'section_encoder_state_dict': self.model.section_encoder.state_dict(),
             'decoder_state_dict': self.model.decoder.state_dict(),
             'reduce_state_dict': self.model.reduce_state.state_dict(),
             'section_reduce_state_dict': self.model.section_reduce_state.state_dict(),
@@ -116,11 +116,11 @@ class Train(object):
 
         loss.backward()
 
-        clip_grad_norm(self.model.encoder.parameters(), config.max_grad_norm)
-        clip_grad_norm(self.model.section_encoder.parameters(), config.max_grad_norm)
-        clip_grad_norm(self.model.decoder.parameters(), config.max_grad_norm)
-        clip_grad_norm(self.model.reduce_state.parameters(), config.max_grad_norm)
-        clip_grad_norm(self.model.section_reduce_state.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.encoder.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.section_encoder.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.decoder.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.reduce_state.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.section_reduce_state.parameters(), config.max_grad_norm)
 
         self.optimizer.step()
 
@@ -130,7 +130,7 @@ class Train(object):
         iter, running_avg_loss = self.setup_train(model_file_path)
         start = time.time()
         while iter < n_iters:
-            print("BATCH")
+            print('\rBatch %d' % iter, end="")
             batch = self.batcher.next_batch()
             loss = self.train_one_batch(batch)
 
@@ -144,7 +144,7 @@ class Train(object):
                 print('steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
                                                                            time.time() - start, loss))
                 start = time.time()
-            if iter % 5 == 0:
+            if iter % 5000 == 0:
                 self.save_model(running_avg_loss, iter)
 
 if __name__ == '__main__':

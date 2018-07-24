@@ -14,7 +14,7 @@ log_root = os.path.join(root_dir, "log")
 # Hyperparameters
 hidden_dim= 256
 emb_dim= 128
-batch_size= 8
+batch_size= 4
 max_article_size=2000
 max_section_size=500
 max_num_sections=4
