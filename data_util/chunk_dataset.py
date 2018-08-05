@@ -19,11 +19,7 @@ def split_file(path, output_path):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('input_path', type=str)
-    parser.add_argument('output_path', type=str)
-    args = parser.parse_args()
-    split_file(args.input_path, args.output_path)
+    split_file('arxiv-release/train.txt', 'arxiv-release/chunked/train')
 
 
 if __name__ == '__main__':
