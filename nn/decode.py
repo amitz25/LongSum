@@ -112,9 +112,11 @@ class BeamSearch(object):
 
         encoder_outputs, encoder_hidden, max_encoder_output = self.model.encoder(enc_batch, enc_lens)
         s_t_0 = self.model.reduce_state(encoder_hidden)
-
         if config.use_maxpool_init_ctx:
             c_t_0 = max_encoder_output
+
+        section_outputs, section_hidden = self.model.section_encoder(s_t_0)
+        s_t_0 = self.model.section_reduce_state(section_hidden)
 
         dec_h, dec_c = s_t_0 # 1 x 2*hidden_size
         dec_h = dec_h.squeeze()
@@ -159,8 +161,8 @@ class BeamSearch(object):
                 coverage_t_1 = torch.stack(all_coverage, 0)
 
             final_dist, s_t, c_t, attn_dist, p_gen, coverage_t = self.model.decoder(y_t_1, s_t_1,
-                                                        encoder_outputs, enc_padding_mask, c_t_1,
-                                                        extra_zeros, enc_batch_extend_vocab, coverage_t_1)
+                                                        encoder_outputs, section_outputs, enc_padding_mask,
+                                                        c_t_1, extra_zeros, enc_batch_extend_vocab, coverage_t_1)
 
             topk_log_probs, topk_ids = torch.topk(final_dist, config.beam_size * 2)
 

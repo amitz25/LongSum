@@ -118,12 +118,13 @@ class Batch(object):
 
     # Fill in the numpy arrays
     # TODO: Verify that it's always at least 4 sections
+    assert min([len(x.enc_inputs) for x in example_list]) == 4, "Invalid num of sections!"
+
     for i, ex in enumerate(example_list):
       for j in range(len(ex.enc_inputs)):
-        self.enc_batch[i, j, :len(ex.enc_inputs[j])] = ex.enc_inputs[j]
+        self.enc_batch[i, j, :len(ex.enc_inputs[j])] = ex.enc_inputs[j][:]
         self.enc_lens[i, j] = ex.enc_lens[j]
-        for k in range(ex.enc_lens[j]):
-          self.enc_padding_mask[i][j][k] = 1
+        self.enc_padding_mask[i, j, :ex.enc_lens[j]] = np.ones(ex.enc_lens[j])
 
     # For pointer-generator mode, need to store some extra info
     if config.pointer_gen:
@@ -135,7 +136,7 @@ class Batch(object):
       self.enc_batch_extend_vocab = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.int32)
       for i, ex in enumerate(example_list):
         for j in range(ex.num_sections):
-          self.enc_batch_extend_vocab[i, j, :len(ex.enc_inputs_extend_vocab[j][:])] = ex.enc_inputs_extend_vocab[j][:]
+          self.enc_batch_extend_vocab[i, j, :len(ex.enc_inputs_extend_vocab[j])] = ex.enc_inputs_extend_vocab[j][:]
 
   def init_decoder_seq(self, example_list):
     # Pad the inputs and targets
@@ -146,15 +147,14 @@ class Batch(object):
     self.dec_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
     self.target_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
     self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
-    self.dec_lens = np.zeros((self.batch_size), dtype=np.int32)
+    self.dec_lens = np.zeros(self.batch_size, dtype=np.int32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
       self.dec_batch[i, :] = ex.dec_input[:]
       self.target_batch[i, :] = ex.target[:]
       self.dec_lens[i] = ex.dec_len
-      for j in range(ex.dec_len):
-        self.dec_padding_mask[i][j] = 1
+      self.dec_padding_mask[i][:ex.dec_len] = np.ones(ex.dec_len)
 
   def store_orig_strings(self, example_list):
     self.original_articles = [ex.original_article for ex in example_list] # list of lists
