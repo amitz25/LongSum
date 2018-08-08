@@ -17,7 +17,7 @@ random.seed(1234)
 
 class Example(object):
 
-  def __init__(self, article_sections, abstract_sentences, vocab):
+  def __init__(self, article_sections, abstract_sentences, vocab, article_sents):
     # Get ids of special tokens
     start_decoding = vocab.word2id(data.START_DECODING)
     stop_decoding = vocab.word2id(data.STOP_DECODING)
@@ -64,6 +64,7 @@ class Example(object):
     self.original_article = article_sections
     self.original_abstract = abstract
     self.original_abstract_sents = abstract_sentences
+    self.original_article_sents = article_sents
 
 
   def get_dec_inp_targ_seqs(self, sequence, max_len, start_id, stop_id):
@@ -160,6 +161,7 @@ class Batch(object):
     self.original_articles = [ex.original_article for ex in example_list] # list of lists
     self.original_abstracts = [ex.original_abstract for ex in example_list] # list of lists
     self.original_abstracts_sents = [ex.original_abstract_sents for ex in example_list] # list of list of lists
+    self.original_article_sents = [ex.original_article_sents for ex in example_list]  # list of list of lists
 
 
 class Batcher(object):
@@ -220,7 +222,7 @@ class Batcher(object):
 
     while True:
       try:
-        (sections, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
+        (sections, abstract, article_sents) = next(input_gen) # read the next example from file. article and abstract are both strings.
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
@@ -231,7 +233,7 @@ class Batcher(object):
           raise Exception("single_pass mode is off but the example generator is out of data; error.")
 
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
-      example = Example(sections, abstract_sentences, self._vocab) # Process into an Example.
+      example = Example(sections, abstract_sentences, self._vocab, article_sents) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
 
   def fill_batch_queue(self):
@@ -283,4 +285,4 @@ class Batcher(object):
   def text_generator(self, example_generator):
     while True:
       e = next(example_generator) # e is a tf.Example
-      yield (e['article_sections'], e['abstract_text'])
+      yield (e['article_sections'], e['abstract_text'], e['article_sents'])

@@ -84,12 +84,12 @@ def example_generator(data_path, single_pass):
     else:
       random.shuffle(filelist)
     for f in filelist:
-      reader = open(f, 'rb')
+      reader = open(f, 'r')
       lines = reader.read().splitlines()
       for line in lines:
           line = json.loads(line)
           example = dict(article_sections=[' '.join(x) for x in line['sections']],
-                         abstract_text=' '.join(line['abstract_text']))
+                         abstract_text=' '.join(line['abstract_text']), article_sents=[x for x in [s for s in line['sections']]])
           yield example
 
     if single_pass:
