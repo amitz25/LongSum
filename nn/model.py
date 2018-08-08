@@ -53,26 +53,35 @@ class Encoder(nn.Module):
         embedded = self.embedding(input)
 
         embedded_flat = embedded.view(-1, embedded.shape[2], embedded.shape[3])
-        sorted_seq_lens, sorted_seq_lens_ind = torch.LongTensor(seq_lens).view(-1).sort(descending=True)
+
+        seq_lens_tensor = torch.LongTensor(seq_lens)
+        if use_cuda:
+            seq_lens_tensor = seq_lens_tensor.cuda()
+
+        sorted_seq_lens, sorted_seq_lens_ind = seq_lens_tensor.view(-1).sort(descending=True)
 
         input_to_words_encoder = embedded_flat.clone()[sorted_seq_lens_ind, :, :]
         packed = pack_padded_sequence(input_to_words_encoder, sorted_seq_lens, batch_first=True)
 
         output, hidden = self.lstm(packed)
 
-        h, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
+        output, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
+        indxs_for_output = sorted_seq_lens_ind.unsqueeze(-1).unsqueeze(-1).expand(-1, output.shape[1],
+                                                                                  output.shape[2])
 
-        unsorted_h = h.clone()
-        unsorted_h[sorted_seq_lens_ind] = h
+        unsorted_output = torch.zeros_like(output)
+        unsorted_output.scatter_(0, indxs_for_output, output)
 
-        hidden_0_clone, hidden_1_clone = hidden[0].clone(), hidden[1].clone()
-        hidden[0][:, sorted_seq_lens_ind, :] = hidden_0_clone
-        hidden[1][:, sorted_seq_lens_ind, :] = hidden_1_clone
+        indxs_for_h = sorted_seq_lens_ind.unsqueeze(0).unsqueeze(-1).expand(hidden[0].shape[0], -1,
+                                                                            hidden[0].shape[2])
+        unsorted_h = (torch.zeros_like(hidden[0]), torch.zeros_like(hidden[1]))
+        unsorted_h[0].scatter_(1, indxs_for_h, hidden[0])
+        unsorted_h[1].scatter_(1, indxs_for_h, hidden[1])
 
-        unsorted_h = unsorted_h.contiguous()
-        max_h, _ = unsorted_h.max(dim=1)
+        output = output.contiguous()
+        max_output, _ = output.max(dim=1)
 
-        return h, hidden, max_h
+        return unsorted_output, unsorted_h, max_output
 
 class ReduceState(nn.Module):
     def __init__(self):
