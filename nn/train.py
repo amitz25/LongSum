@@ -2,6 +2,7 @@ from __future__ import unicode_literals, print_function, division
 
 import os
 import time
+import sys
 
 import tensorflow as tf
 import torch
@@ -139,14 +140,19 @@ class Train(object):
 
             if iter % 5000 == 0:
                 self.summary_writer.flush()
-            print_interval = 1000
+            print_interval = 100
             if iter % print_interval == 0:
                 print('steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
                                                                            time.time() - start, loss))
                 start = time.time()
-            if iter % 5000 == 0:
+            if iter % 1000 == 0:
                 self.save_model(running_avg_loss, iter)
 
 if __name__ == '__main__':
     train_processor = Train()
-    train_processor.trainIters(config.max_iterations)
+    if len(sys.argv) > 1:
+        model_filename = sys.argv[1]
+    else:
+        model_filename = None
+
+    train_processor.trainIters(config.max_iterations, model_filename)

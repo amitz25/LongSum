@@ -175,7 +175,7 @@ class WordAttention(nn.Module):
         attn_dist = attn_dist.view(b, -1)  # B x t_k * s
 
         if config.is_coverage:
-            coverage += attn_dist.view(*coverage.shape)
+            coverage = coverage.clone() + attn_dist.view(*coverage.shape)
 
         return c_t, attn_dist, coverage
 

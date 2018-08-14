@@ -71,7 +71,8 @@ class BeamSearch(object):
         batch = self.batcher.next_batch()
         while batch is not None:
             # Run beam search to get best Hypothesis
-            best_summary = self.beam_search(batch)
+            with torch.no_grad():
+                best_summary = self.beam_search(batch)
 
             # Extract the output ids from the hypothesis and convert back to words
             output_ids = [int(t) for t in best_summary.tokens[1:]]
