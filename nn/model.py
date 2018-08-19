@@ -137,7 +137,7 @@ class WordAttention(nn.Module):
         self.decode_proj = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2)
         self.v = nn.Linear(config.hidden_dim * 2, 1, bias=False)
 
-    def forward(self, s_t_hat, h, coverage, enc_padding_mask, beta):
+    def forward(self, s_t_hat, h, coverage, enc_padding_mask, beta, gamma):
         b, s, t_k, n = list(h.size())
         encoder_feature = self.W_h(h)
 
@@ -156,6 +156,11 @@ class WordAttention(nn.Module):
 
         # Use section weighting (beta)
         weighted_scores = beta.unsqueeze(-1) * scores
+
+        # Use sentence weighting (gamma)
+        if config.is_sentence_filtering:
+            assert gamma is not None, "Gamma is None with sentence filtering turned on!"
+            weighted_scores = weighted_scores * gamma
 
         # Flatten view for softmax on all words
         weighted_scores = weighted_scores.view(config.batch_size, weighted_scores.shape[1] * weighted_scores.shape[2])
@@ -201,47 +206,133 @@ class SentenceFilterer(nn.Module):
         super(SentenceFilterer, self).__init__()
 
         self.sentence_encoder = nn.GRU(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True,
-                                        bidirectional=True)
-        self.sentence_filterer = nn.GRU(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True,
-                                        bidirectional=True)
+                                       bidirectional=True)
+        self.document_encoder = nn.GRU(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True,
+                                       bidirectional=True)
+
+        self.sentence_filterer = nn.Linear(config.hidden_dim * 2, 1)
 
         init_lstm_wt(self.sentence_encoder)
-        init_lstm_wt(self.sentence_filterer)
+        init_lstm_wt(self.document_encoder)
+        init_linear_wt(self.sentence_filterer)
 
     def forward(self, input, sent_lens):
         sent_lens_tensor = torch.LongTensor(sent_lens)
         if use_cuda:
             sent_lens_tensor = sent_lens_tensor.cuda()
-        import pdb; pdb.set_trace()
 
         sent_lens_flat = sent_lens_tensor.view(-1, sent_lens_tensor.shape[-1])
-        input_to_encoder = None
+        max_sent_len = sent_lens_flat.view(-1).max().item()
         padded_sents = []
+        total_actual_sent_lens = []
 
         for i_section in range(0, input.shape[0]):
+            section_padded_sents = []
+
             actual_range = sent_lens_flat[i_section].sum().item()
             actual_section = input[i_section, :actual_range, :]
-            import pdb; pdb.set_trace()
             actual_sent_lens = sent_lens_flat[i_section].tolist()
             if 0 in actual_sent_lens:
                 actual_sent_lens = actual_sent_lens[:actual_sent_lens.index(0)]
 
             sents = torch.split(actual_section, actual_sent_lens)
-            max_sent_len = sent_lens_flat.view(-1).max().item()
             for i, sent in enumerate(sents):
-                padded_sents.append(torch.cat((sents[i], torch.zeros(max_sent_len - sents[i].shape[0], sents[i].shape[1], device=sents[i].device))))
+                section_padded_sents.append(torch.cat((sents[i], torch.zeros(max_sent_len - sents[i].shape[0], sents[i].shape[1],
+                                                                     device=sents[i].device))))
 
-            padded_sents = torch.stack(padded_sents)
+            padded_sents.append(torch.stack(section_padded_sents))
+            total_actual_sent_lens += actual_sent_lens
 
-            for sent_len in sent_lens_tensor[i_section]:
-                if sent_len != 0:
-                    current_sent = input[i_section,]
+        # Pad each section's sentence list and stack everything
+        total_actual_sent_lens = torch.LongTensor(total_actual_sent_lens)
+        if use_cuda:
+            total_actual_sent_lens = total_actual_sent_lens.cuda()
 
-        max_sent_len = sent_lens_tensor.max().item()
+        all_sents_flat = torch.cat(padded_sents)
 
-        input_
-        sent_encoder_input = torch.split(input_flat, sent_lens_flat.cpu().tolist())
+        sorted_seq_lens, sorted_seq_lens_ind = total_actual_sent_lens.view(-1).sort(descending=True)
+        input_to_words_encoder = all_sents_flat.clone()[sorted_seq_lens_ind, :, :]
+        packed = pack_padded_sequence(input_to_words_encoder, sorted_seq_lens, batch_first=True)
+        out, hidden = self.sentence_encoder(packed)
 
+        indxs_for_h = sorted_seq_lens_ind.unsqueeze(0).unsqueeze(-1).expand(hidden.shape[0], -1,
+                                                                            hidden.shape[2])
+        unsorted_h = torch.zeros_like(hidden)
+        unsorted_h.scatter_(1, indxs_for_h, hidden)
+
+        hidden = hidden.permute(1, 0, 2).contiguous()
+        hidden = hidden.view(1, hidden.shape[0], -1)
+
+        section_num_sents = [len(x) for x in padded_sents]
+        section_sents = list(torch.split(hidden, section_num_sents, dim=1))
+
+        # Concatenate sentences in each section
+        doc_sents = []
+        for i in range(0, len(section_sents), config.max_num_sections):
+            doc_sents.append(torch.cat(section_sents[i: i + config.max_num_sections], dim=1))
+
+        # Pad sentences in each doc
+        max_sents_in_doc = max([x.shape[1] for x in doc_sents])
+        doc_num_sents = []
+        doc_sents_mask = torch.zeros(config.batch_size, max_sents_in_doc, device=hidden.device)
+        for i, sents in enumerate(doc_sents):
+            doc_num_sents.append(sents.shape[1])
+            doc_sents_mask[i, :sents.shape[1]] = torch.ones(sents.shape[1], device=hidden.device)
+            if sents.shape[1] < max_sents_in_doc:
+                doc_sents[i] = torch.cat((sents,
+                                          torch.zeros(sents.shape[0], max_sents_in_doc - sents.shape[1], sents.shape[2], device=sents.device)),
+                                         dim=1)
+
+        doc_num_sents = torch.LongTensor(doc_num_sents)
+        doc_sents = torch.cat(doc_sents, dim=0)
+        if use_cuda:
+            doc_num_sents = doc_num_sents.cuda()
+
+        # Pad packed and sort
+        sorted_seq_lens, sorted_seq_lens_ind = doc_num_sents.view(-1).sort(descending=True)
+        input_to_doc_encoder = doc_sents.clone()[sorted_seq_lens_ind, :, :]
+        packed = pack_padded_sequence(input_to_doc_encoder, sorted_seq_lens, batch_first=True)
+
+        out, _ = self.document_encoder(packed)
+        out, _ = pad_packed_sequence(out, batch_first=True)
+
+        # Unsort output
+        indxs_for_output = sorted_seq_lens_ind.unsqueeze(-1).unsqueeze(-1).expand(-1, out.shape[1],
+                                                                                  out.shape[2])
+        unsorted_output = torch.zeros_like(out)
+        unsorted_output.scatter_(0, indxs_for_output, out)
+
+        sentence_scores = self.sentence_filterer(out.contiguous().view(-1, out.shape[2]))
+        sentence_scores = sentence_scores.view(config.batch_size, -1)
+
+        norm_scores = F.softmax(sentence_scores, dim=1) * doc_sents_mask
+        normalization_factor = norm_scores.sum(1, keepdim=True)
+        dist_scores = norm_scores / normalization_factor
+
+        # Reverse back to words
+        total_scores = []
+        for i in range(0, dist_scores.shape[0]):
+            doc_scores = dist_scores[i][:doc_num_sents[i]]
+            scores_by_section = torch.split(doc_scores, section_num_sents[config.max_num_sections * i: config.max_num_sections* i + config.max_num_sections])
+            word_scores = []
+
+            for j, section_scores in enumerate(scores_by_section):
+                section_word_scores = []
+                actual_sent_lens = sent_lens_tensor[i, j].tolist()
+                if 0 in actual_sent_lens:
+                    actual_sent_lens = actual_sent_lens[:actual_sent_lens.index(0)]
+                for k, sent_len in enumerate(actual_sent_lens):
+                    section_word_scores += [section_scores[k]] * sent_len
+
+                section_word_scores = torch.stack(section_word_scores)
+                if len(section_word_scores) < config.max_section_size:
+                    section_word_scores = F.pad(section_word_scores, (0, config.max_section_size - len(section_word_scores)))
+
+                word_scores.append(section_word_scores)
+
+            total_scores.append(torch.stack(word_scores))
+
+        return torch.stack(total_scores)
 
 class Decoder(nn.Module):
     def __init__(self):
@@ -266,7 +357,7 @@ class Decoder(nn.Module):
         init_linear_wt(self.out2)
 
     def forward(self, y_t_1, s_t_1, encoder_output, section_output, enc_padding_mask,
-                c_t_1, extra_zeros, enc_batch_extend_vocab, coverage):
+                c_t_1, extra_zeros, enc_batch_extend_vocab, coverage, gamma):
         y_t_1_embd = self.embedding(y_t_1)
         x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
 
@@ -281,7 +372,7 @@ class Decoder(nn.Module):
         encoder_output = encoder_output.view(config.batch_size, config.max_num_sections, *encoder_output.shape[1:])
         c_t, attn_dist, coverage = self.word_attention(s_t_hat, encoder_output,
                                                        enc_padding_mask=enc_padding_mask, coverage=coverage,
-                                                       beta=beta)
+                                                       beta=beta, gamma=gamma)
 
         p_gen = None
         if config.pointer_gen:
@@ -349,7 +440,10 @@ class Model(object):
             state = torch.load(model_file_path, map_location= lambda storage, location: storage)
             self.encoder.load_state_dict(state['encoder_state_dict'])
             self.section_encoder.load_state_dict(state['section_encoder_state_dict'])
-            self.sentence_filterer.load_state_dict(state['sentence_filterer_state_dict'])
+
+            if 'sentence_filterer_state_dict' in state:
+                self.sentence_filterer.load_state_dict(state['sentence_filterer_state_dict'])
+
             self.decoder.load_state_dict(state['decoder_state_dict'], strict=False)
             self.reduce_state.load_state_dict(state['reduce_state_dict'])
             self.section_reduce_state.load_state_dict(state['section_reduce_state_dict'])

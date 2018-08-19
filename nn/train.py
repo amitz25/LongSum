@@ -70,7 +70,7 @@ class Train(object):
             start_iter = state['iter']
             start_loss = state['current_loss']
 
-            if not config.is_coverage:
+            if not config.is_coverage and not config.is_sentence_filtering:
                 self.optimizer.load_state_dict(state['optimizer'])
                 if use_cuda:
                     for state in self.optimizer.state.values():
@@ -93,7 +93,9 @@ class Train(object):
         if config.use_maxpool_init_ctx:
             c_t_1 = max_encoder_output
 
-        self.model.sentence_filterer(encoder_outputs, sent_lens)
+        gamma = None
+        if config.is_sentence_filtering:
+            gamma = self.model.sentence_filterer(encoder_outputs, sent_lens)
 
         section_outputs, section_hidden = self.model.section_encoder(s_t_1)
         s_t_1 = self.model.section_reduce_state(section_hidden)
@@ -104,7 +106,7 @@ class Train(object):
             final_dist, s_t_1, c_t_1, attn_dist, p_gen, coverage = self.model.decoder(y_t_1, s_t_1,
                                                         encoder_outputs, section_outputs, enc_padding_mask,
                                                         c_t_1, extra_zeros, enc_batch_extend_vocab,
-                                                        coverage)
+                                                        coverage, gamma)
             target = target_batch[:, di]
             gold_probs = torch.gather(final_dist, 1, target.unsqueeze(1)).squeeze()
             step_loss = -torch.log(gold_probs + config.eps)
@@ -145,10 +147,10 @@ class Train(object):
 
             if iter % 5000 == 0:
                 self.summary_writer.flush()
-            print_interval = 100
+            print_interval = 10
             if iter % print_interval == 0:
-                print('steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
-                                                                           time.time() - start, loss))
+                print(' steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
+                                                                            time.time() - start, loss))
                 start = time.time()
             if iter % 1000 == 0:
                 self.save_model(running_avg_loss, iter)
