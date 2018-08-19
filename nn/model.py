@@ -196,6 +196,52 @@ class SectionEncoder(nn.Module):
 
         return output, hidden
 
+class SentenceFilterer(nn.Module):
+    def __init__(self):
+        super(SentenceFilterer, self).__init__()
+
+        self.sentence_encoder = nn.GRU(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True,
+                                        bidirectional=True)
+        self.sentence_filterer = nn.GRU(config.hidden_dim * 2, config.hidden_dim, num_layers=1, batch_first=True,
+                                        bidirectional=True)
+
+        init_lstm_wt(self.sentence_encoder)
+        init_lstm_wt(self.sentence_filterer)
+
+    def forward(self, input, sent_lens):
+        sent_lens_tensor = torch.LongTensor(sent_lens)
+        if use_cuda:
+            sent_lens_tensor = sent_lens_tensor.cuda()
+        import pdb; pdb.set_trace()
+
+        sent_lens_flat = sent_lens_tensor.view(-1, sent_lens_tensor.shape[-1])
+        input_to_encoder = None
+        padded_sents = []
+
+        for i_section in range(0, input.shape[0]):
+            actual_range = sent_lens_flat[i_section].sum().item()
+            actual_section = input[i_section, :actual_range, :]
+            import pdb; pdb.set_trace()
+            actual_sent_lens = sent_lens_flat[i_section].tolist()
+            if 0 in actual_sent_lens:
+                actual_sent_lens = actual_sent_lens[:actual_sent_lens.index(0)]
+
+            sents = torch.split(actual_section, actual_sent_lens)
+            max_sent_len = sent_lens_flat.view(-1).max().item()
+            for i, sent in enumerate(sents):
+                padded_sents.append(torch.cat((sents[i], torch.zeros(max_sent_len - sents[i].shape[0], sents[i].shape[1], device=sents[i].device))))
+
+            padded_sents = torch.stack(padded_sents)
+
+            for sent_len in sent_lens_tensor[i_section]:
+                if sent_len != 0:
+                    current_sent = input[i_section,]
+
+        max_sent_len = sent_lens_tensor.max().item()
+
+        input_
+        sent_encoder_input = torch.split(input_flat, sent_lens_flat.cpu().tolist())
+
 
 class Decoder(nn.Module):
     def __init__(self):
@@ -269,6 +315,7 @@ class Model(object):
     def __init__(self, model_file_path=None, is_eval=False):
         encoder = Encoder()
         section_encoder = SectionEncoder()
+        sentence_filterer = SentenceFilterer()
         decoder = Decoder()
         reduce_state = ReduceState()
         section_reduce_state = ReduceState()
@@ -278,6 +325,7 @@ class Model(object):
         if is_eval:
             encoder = encoder.eval()
             section_encoder = section_encoder.eval()
+            sentence_filterer = sentence_filterer.eval()
             decoder = decoder.eval()
             reduce_state = reduce_state.eval()
             section_reduce_state = section_reduce_state.eval()
@@ -285,12 +333,14 @@ class Model(object):
         if use_cuda:
             encoder = encoder.cuda()
             section_encoder = section_encoder.cuda()
+            sentence_filterer = sentence_filterer.cuda()
             decoder = decoder.cuda()
             reduce_state = reduce_state.cuda()
             section_reduce_state = section_reduce_state.cuda()
 
         self.encoder = encoder
         self.section_encoder = section_encoder
+        self.sentence_filterer = sentence_filterer
         self.decoder = decoder
         self.reduce_state = reduce_state
         self.section_reduce_state = section_reduce_state
@@ -299,6 +349,7 @@ class Model(object):
             state = torch.load(model_file_path, map_location= lambda storage, location: storage)
             self.encoder.load_state_dict(state['encoder_state_dict'])
             self.section_encoder.load_state_dict(state['section_encoder_state_dict'])
+            self.sentence_filterer.load_state_dict(state['sentence_filterer_state_dict'])
             self.decoder.load_state_dict(state['decoder_state_dict'], strict=False)
             self.reduce_state.load_state_dict(state['reduce_state_dict'])
             self.section_reduce_state.load_state_dict(state['section_reduce_state_dict'])

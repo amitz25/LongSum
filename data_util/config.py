@@ -7,14 +7,14 @@ dataset_name = 'arxiv-release' if arxiv_dataset else 'PubMed'
 
 train_data_path = os.path.join(root_dir, dataset_name, "chunked", "train_*")
 eval_data_path = os.path.join(root_dir, dataset_name, "chunked", "val_*")
-decode_data_path = os.path.join(root_dir, dataset_name, "chunked", "test_*")
+decode_data_path = os.path.join(root_dir, dataset_name, "chunked", "test_0*")
 vocab_path = os.path.join(root_dir, dataset_name, "vocab")
 log_root = os.path.join(root_dir, "log")
 
 # Hyperparameters
 hidden_dim= 256
 emb_dim= 128
-batch_size= 4
+batch_size= 12
 max_article_size=2000
 max_section_size=500
 max_num_sections=4

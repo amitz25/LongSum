@@ -41,6 +41,7 @@ class Train(object):
             'iter': iter,
             'encoder_state_dict': self.model.encoder.state_dict(),
             'section_encoder_state_dict': self.model.section_encoder.state_dict(),
+            'sentence_encoder_state_dict': self.model.sentence_encoder.state_dict(),
             'decoder_state_dict': self.model.decoder.state_dict(),
             'reduce_state_dict': self.model.reduce_state.state_dict(),
             'section_reduce_state_dict': self.model.section_reduce_state.state_dict(),
@@ -55,6 +56,7 @@ class Train(object):
 
         params = list(self.model.encoder.parameters()) + \
                  list(self.model.section_encoder.parameters()) + \
+                 list(self.model.sentence_filterer.parameters()) + \
                  list(self.model.decoder.parameters()) + \
                  list(self.model.reduce_state.parameters()) + \
                  list(self.model.section_reduce_state.parameters())
@@ -79,7 +81,7 @@ class Train(object):
         return start_iter, start_loss
 
     def train_one_batch(self, batch):
-        enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros, c_t_1, coverage = \
+        enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros, c_t_1, coverage, sent_lens = \
             get_input_from_batch(batch, use_cuda)
         dec_batch, dec_padding_mask, max_dec_len, dec_lens_var, target_batch = \
             get_output_from_batch(batch, use_cuda)
@@ -90,6 +92,8 @@ class Train(object):
         s_t_1 = self.model.reduce_state(encoder_hidden)
         if config.use_maxpool_init_ctx:
             c_t_1 = max_encoder_output
+
+        self.model.sentence_filterer(encoder_outputs, sent_lens)
 
         section_outputs, section_hidden = self.model.section_encoder(s_t_1)
         s_t_1 = self.model.section_reduce_state(section_hidden)
@@ -119,6 +123,7 @@ class Train(object):
 
         clip_grad_norm_(self.model.encoder.parameters(), config.max_grad_norm)
         clip_grad_norm_(self.model.section_encoder.parameters(), config.max_grad_norm)
+        clip_grad_norm_(self.model.sentence_filterer.parameters(), config.max_grad_norm)
         clip_grad_norm_(self.model.decoder.parameters(), config.max_grad_norm)
         clip_grad_norm_(self.model.reduce_state.parameters(), config.max_grad_norm)
         clip_grad_norm_(self.model.section_reduce_state.parameters(), config.max_grad_norm)

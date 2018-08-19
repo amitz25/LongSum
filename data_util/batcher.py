@@ -26,19 +26,41 @@ class Example(object):
     self.enc_lens = []
     self.enc_inputs = []
 
+    self.sent_lens = []
+
     # Process the article
-    for section in article_sections[:config.max_num_sections]:
+    for i, section in enumerate(article_sections[:config.max_num_sections]):
+      current_article_sents = [x.split() for x in article_sents[i]]
       words = section.split()
       if len(words) > config.max_section_size:
+        words_to_remove = len(words) - config.max_section_size
         words = words[:config.max_section_size]
+
+        indx = 0
+        inner_stay = 0
+        for j, sent in enumerate(reversed(current_article_sents)):
+          indx += len(sent)
+          if indx > words_to_remove:
+            inner_stay = indx - words_to_remove
+            break
+
+        if j > 0:
+          current_article_sents = current_article_sents[: -j]
+        if inner_stay > 0:
+          current_article_sents[-1] = current_article_sents[-1][: inner_stay]
+
+      assert sum([len(x) for x in current_article_sents]) == len(words), "Bug in sent filtering!"
 
       self.enc_lens.append(len(words))
       self.enc_inputs.append([vocab.word2id(w) for w in words]) # list of word ids; OOVs are represented by the id for UNK token
+
+      self.sent_lens.append([len(x) for x in current_article_sents])
 
       section_words.append(words)
 
     self.num_sections = len(section_words)
     self.max_enc_len = max(self.enc_lens)
+    self.max_num_sents = max([len(x) for x in self.sent_lens])
 
     # Process the abstract
     abstract = ' '.join(abstract_sentences) # string
@@ -107,6 +129,7 @@ class Batch(object):
   def init_encoder_seq(self, example_list):
     # Determine the maximum length of the encoder input sequence in this batch
     max_enc_seq_len = max([ex.max_enc_len for ex in example_list])
+    max_num_sents = max([ex.max_num_sents for ex in example_list])
 
     # Pad the encoder input sequences up to the length of the longest sequence
     for ex in example_list:
@@ -116,6 +139,7 @@ class Batch(object):
     self.enc_batch = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.int32)
     self.enc_lens = np.zeros((self.batch_size, config.max_num_sections), dtype=np.int32)
     self.enc_padding_mask = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.float32)
+    self.sent_lens = np.zeros((self.batch_size, config.max_num_sections, max_num_sents), dtype=np.int32)
 
     # Fill in the numpy arrays
     # TODO: Verify that it's always at least 4 sections
@@ -126,6 +150,7 @@ class Batch(object):
         self.enc_batch[i, j, :len(ex.enc_inputs[j])] = ex.enc_inputs[j][:]
         self.enc_lens[i, j] = ex.enc_lens[j]
         self.enc_padding_mask[i, j, :ex.enc_lens[j]] = np.ones(ex.enc_lens[j])
+        self.sent_lens[i, j, :len(ex.sent_lens[j])] = ex.sent_lens[j][:]
 
     # For pointer-generator mode, need to store some extra info
     if config.pointer_gen:
