@@ -8,6 +8,7 @@ import tensorflow as tf
 import torch
 from nn.model import Model
 from torch.nn.utils import clip_grad_norm_
+import torch.nn.functional as F
 
 from nn.custom_adagrad import AdagradCustom
 
@@ -41,7 +42,7 @@ class Train(object):
             'iter': iter,
             'encoder_state_dict': self.model.encoder.state_dict(),
             'section_encoder_state_dict': self.model.section_encoder.state_dict(),
-            'sentence_encoder_state_dict': self.model.sentence_encoder.state_dict(),
+            'sentence_filterer_state_dict': self.model.sentence_filterer.state_dict(),
             'decoder_state_dict': self.model.decoder.state_dict(),
             'reduce_state_dict': self.model.reduce_state.state_dict(),
             'section_reduce_state_dict': self.model.section_reduce_state.state_dict(),
@@ -95,7 +96,7 @@ class Train(object):
 
         gamma = None
         if config.is_sentence_filtering:
-            gamma = self.model.sentence_filterer(encoder_outputs, sent_lens)
+            gamma, sent_dists = self.model.sentence_filterer(encoder_outputs, sent_lens)
 
         section_outputs, section_hidden = self.model.section_encoder(s_t_1)
         s_t_1 = self.model.section_reduce_state(section_hidden)
@@ -120,6 +121,13 @@ class Train(object):
         sum_losses = torch.sum(torch.stack(step_losses, 1), 1)
         batch_avg_loss = sum_losses/dec_lens_var
         loss = torch.mean(batch_avg_loss)
+
+        if config.is_sentence_filtering:
+            sim_scores = torch.FloatTensor(batch.sim_scores)
+            if use_cuda:
+                sim_scores = sim_scores.cuda()
+            sent_filter_loss = F.binary_cross_entropy(sent_dists, sim_scores)
+            loss += config.sent_loss_wt * sent_filter_loss
 
         loss.backward()
 

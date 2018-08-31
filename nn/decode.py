@@ -108,13 +108,17 @@ class BeamSearch(object):
 
     def beam_search(self, batch):
         #batch should have only one example
-        enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros, c_t_0, coverage_t_0 = \
+        enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros, c_t_0, coverage_t_0, sent_lens = \
             get_input_from_batch(batch, use_cuda)
 
         encoder_outputs, encoder_hidden, max_encoder_output = self.model.encoder(enc_batch, enc_lens)
         s_t_0 = self.model.reduce_state(encoder_hidden)
         if config.use_maxpool_init_ctx:
             c_t_0 = max_encoder_output
+
+        gamma = None
+        if config.is_sentence_filtering:
+            gamma, sent_dists = self.model.sentence_filterer(encoder_outputs, sent_lens)
 
         section_outputs, section_hidden = self.model.section_encoder(s_t_0)
         s_t_0 = self.model.section_reduce_state(section_hidden)
@@ -163,7 +167,7 @@ class BeamSearch(object):
 
             final_dist, s_t, c_t, attn_dist, p_gen, coverage_t = self.model.decoder(y_t_1, s_t_1,
                                                         encoder_outputs, section_outputs, enc_padding_mask,
-                                                        c_t_1, extra_zeros, enc_batch_extend_vocab, coverage_t_1)
+                                                        c_t_1, extra_zeros, enc_batch_extend_vocab, coverage_t_1, gamma)
 
             topk_log_probs, topk_ids = torch.topk(final_dist, config.beam_size * 2)
 

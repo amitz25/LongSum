@@ -89,7 +89,9 @@ def example_generator(data_path, single_pass):
       for line in lines:
           line = json.loads(line)
           example = dict(article_sections=[' '.join(x) for x in line['sections']],
-                         abstract_text=' '.join(line['abstract_text']), article_sents=[x for x in [s for s in line['sections']]])
+                         abstract_text=' '.join(line['abstract_text']),
+                         article_sents=[x for x in [s for s in line['sections']]],
+                         similarity_scores=line['similarity_scores'])
           yield example
 
     if single_pass:

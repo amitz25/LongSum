@@ -19,22 +19,18 @@ def get_masks(abstract_sentences, article_sentences, abstract_lengths, article_l
     masks = []
 
     with tf.Session() as sess:
-        print("BEFORE MODEL")
         sess.run([tf.global_variables_initializer(), tf.tables_initializer()])
         articles_abstracts_embed = sess.run(embed(article_sentences + abstract_sentences))
-        print("AFTER MODEL")
         num_article_sents = sum(article_lengths)
         articles_embed = articles_abstracts_embed[:num_article_sents, :]
         abstract_embed = articles_abstracts_embed[num_article_sents:, :]
         article_sent_ind = 0
         abstract_sent_ind = 0
-        print("BEFORE INNER")
         for i in range(len(article_lengths)): #number of articles
             cur_article = articles_embed[article_sent_ind : article_sent_ind + article_lengths[i], :]
             cur_abstract = abstract_embed[abstract_sent_ind : abstract_sent_ind + abstract_lengths[i], :]
             article_sent_ind += article_lengths[i]
             abstract_sent_ind += abstract_lengths[i]
-            #import pdb; pdb.set_trace()
             cur_mask = [0 for i in range(article_lengths[i])]
             for sent in range(cur_abstract.shape[0]):
                 similarities = np.inner(cur_abstract[sent, :], cur_article)
@@ -42,7 +38,6 @@ def get_masks(abstract_sentences, article_sentences, abstract_lengths, article_l
                 for index in top_k:
                     cur_mask[index] = 1
             masks.append(cur_mask)
-        print("AFTER INNER")
 
     return masks
 

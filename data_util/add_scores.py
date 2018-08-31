@@ -14,6 +14,9 @@ def gen_res(path):
     basename = os.path.basename(path)
     res_path = os.path.join(res_dir, basename)
 
+    if os.path.exists(res_path):
+        return
+
     orig_lines = open(os.path.join(chunked_dir, basename), 'r').read().splitlines()
     score_lines = open(os.path.join(scores_dir, basename), 'r').read().splitlines()
     res_lines = []
@@ -23,7 +26,7 @@ def gen_res(path):
         orig_line = json.loads(orig_lines[i])
         assert line['article_id'] == orig_line['article_id'], "Inconsistent lines!"
         orig_line['similarity_scores'] = line['scores']
-        res_lines.append(str(orig_line))
+        res_lines.append(json.dumps(orig_line))
 
     open(res_path, 'w').write('\n'.join(res_lines))
 
@@ -36,7 +39,7 @@ def main():
     paths = glob(os.path.join(scores_dir, "*"))
     pool = multiprocessing.Pool()
 
-    res = list(tqdm.tqdm(pool.imap(gen_res, paths), total=len(paths)))
+    list(tqdm.tqdm(pool.imap(gen_res, paths), total=len(paths)))
 
 if __name__ == '__main__':
     main()

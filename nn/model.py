@@ -332,7 +332,7 @@ class SentenceFilterer(nn.Module):
 
             total_scores.append(torch.stack(word_scores))
 
-        return torch.stack(total_scores)
+        return torch.stack(total_scores), dist_scores
 
 class Decoder(nn.Module):
     def __init__(self):

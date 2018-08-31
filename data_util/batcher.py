@@ -17,7 +17,7 @@ random.seed(1234)
 
 class Example(object):
 
-  def __init__(self, article_sections, abstract_sentences, vocab, article_sents):
+  def __init__(self, article_sections, abstract_sentences, vocab, article_sents, similarity_scores):
     # Get ids of special tokens
     start_decoding = vocab.word2id(data.START_DECODING)
     stop_decoding = vocab.word2id(data.STOP_DECODING)
@@ -82,6 +82,15 @@ class Example(object):
       # Overwrite decoder target sequence so it uses the temp article OOV ids
       _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, config.max_dec_steps, start_decoding, stop_decoding)
 
+    # Process the similarity scores
+    self.similarity_scores = []
+    assert len(similarity_scores) == sum([len(x) for x in article_sents])
+    global_sent_index = 0
+    for i, section_sent_lens in enumerate(self.sent_lens):
+      num_sents_cut = len(section_sent_lens)
+      self.similarity_scores += similarity_scores[global_sent_index : global_sent_index + num_sents_cut]
+      global_sent_index += len(article_sents[i])
+
     # Store the original strings
     self.original_article = article_sections
     self.original_abstract = abstract
@@ -130,6 +139,7 @@ class Batch(object):
     # Determine the maximum length of the encoder input sequence in this batch
     max_enc_seq_len = max([ex.max_enc_len for ex in example_list])
     max_num_sents = max([ex.max_num_sents for ex in example_list])
+    max_sim_score_len = max([len(ex.similarity_scores) for ex in example_list])
 
     # Pad the encoder input sequences up to the length of the longest sequence
     for ex in example_list:
@@ -140,6 +150,8 @@ class Batch(object):
     self.enc_lens = np.zeros((self.batch_size, config.max_num_sections), dtype=np.int32)
     self.enc_padding_mask = np.zeros((self.batch_size, config.max_num_sections, max_enc_seq_len), dtype=np.float32)
     self.sent_lens = np.zeros((self.batch_size, config.max_num_sections, max_num_sents), dtype=np.int32)
+    self.sim_scores = np.zeros((self.batch_size, max_sim_score_len), dtype=np.int32)
+    self.sim_scores_mask = np.zeros((self.batch_size, max_sim_score_len), dtype=np.float32)
 
     # Fill in the numpy arrays
     # TODO: Verify that it's always at least 4 sections
@@ -151,6 +163,8 @@ class Batch(object):
         self.enc_lens[i, j] = ex.enc_lens[j]
         self.enc_padding_mask[i, j, :ex.enc_lens[j]] = np.ones(ex.enc_lens[j])
         self.sent_lens[i, j, :len(ex.sent_lens[j])] = ex.sent_lens[j][:]
+      self.sim_scores[i, :len(ex.similarity_scores)] = ex.similarity_scores[:]
+      self.sim_scores_mask[i, :len(ex.similarity_scores)] = np.ones(len(ex.similarity_scores))
 
     # For pointer-generator mode, need to store some extra info
     if config.pointer_gen:
@@ -187,6 +201,7 @@ class Batch(object):
     self.original_abstracts = [ex.original_abstract for ex in example_list] # list of lists
     self.original_abstracts_sents = [ex.original_abstract_sents for ex in example_list] # list of list of lists
     self.original_article_sents = [ex.original_article_sents for ex in example_list]  # list of list of lists
+
 
 
 class Batcher(object):
@@ -247,7 +262,8 @@ class Batcher(object):
 
     while True:
       try:
-        (sections, abstract, article_sents) = next(input_gen) # read the next example from file. article and abstract are both strings.
+        # read the next example from file. article and abstract are both strings.
+        (sections, abstract, article_sents, similarity_scores) = next(input_gen)
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
@@ -258,7 +274,7 @@ class Batcher(object):
           raise Exception("single_pass mode is off but the example generator is out of data; error.")
 
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
-      example = Example(sections, abstract_sentences, self._vocab, article_sents) # Process into an Example.
+      example = Example(sections, abstract_sentences, self._vocab, article_sents, similarity_scores) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
 
   def fill_batch_queue(self):
@@ -310,4 +326,4 @@ class Batcher(object):
   def text_generator(self, example_generator):
     while True:
       e = next(example_generator) # e is a tf.Example
-      yield (e['article_sections'], e['abstract_text'], e['article_sents'])
+      yield (e['article_sections'], e['abstract_text'], e['article_sents'], e['similarity_scores'])
