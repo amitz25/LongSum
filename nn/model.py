@@ -160,6 +160,7 @@ class WordAttention(nn.Module):
         # Use sentence weighting (gamma)
         if config.is_sentence_filtering:
             assert gamma is not None, "Gamma is None with sentence filtering turned on!"
+            gamma = gamma[:, :, :weighted_scores.shape[2]]
             weighted_scores = weighted_scores * gamma
 
         # Flatten view for softmax on all words
