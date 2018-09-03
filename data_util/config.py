@@ -7,7 +7,7 @@ dataset_name = 'arxiv-release' if arxiv_dataset else 'PubMed'
 
 train_data_path = os.path.join(root_dir, dataset_name, "chunked_scored", "train_*")
 eval_data_path = os.path.join(root_dir, dataset_name, "chunked_scored", "val_*")
-decode_data_path = os.path.join(root_dir, dataset_name, "chunked_scored", "test_0*")
+decode_data_path = os.path.join(root_dir, dataset_name, "chunked_scored", "test_*")
 vocab_path = os.path.join(root_dir, dataset_name, "vocab")
 log_root = os.path.join(root_dir, "log")
 
