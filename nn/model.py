@@ -164,9 +164,8 @@ class WordAttention(nn.Module):
             weighted_scores = weighted_scores * gamma
 
         # Flatten view for softmax on all words
-        weighted_scores = weighted_scores.view(config.batch_size, weighted_scores.shape[1] * weighted_scores.shape[2])
-        enc_padding_mask = enc_padding_mask.view(config.batch_size,
-                                                 enc_padding_mask.shape[1] * enc_padding_mask.shape[2])
+        weighted_scores = weighted_scores.view(-1, weighted_scores.shape[1] * weighted_scores.shape[2])
+        enc_padding_mask = enc_padding_mask.view(-1, enc_padding_mask.shape[1] * enc_padding_mask.shape[2])
 
 
         attn_dist_ = F.softmax(weighted_scores, dim=1) * enc_padding_mask
@@ -193,8 +192,8 @@ class SectionEncoder(nn.Module):
         init_lstm_wt(self.lstm)
 
     def forward(self, input):
-        hidden = input[0].view(config.batch_size, config.max_num_sections, input[0].shape[2])
-        cell = input[1].view(config.batch_size, config.max_num_sections, input[1].shape[2])
+        hidden = input[0].view(-1, config.max_num_sections, input[0].shape[2])
+        cell = input[1].view(-1, config.max_num_sections, input[1].shape[2])
 
         # TODO: Make sure we don't need just hidden
         h_c = torch.cat((hidden, cell), dim=2)
@@ -221,6 +220,8 @@ class SentenceFilterer(nn.Module):
         sent_lens_tensor = torch.LongTensor(sent_lens)
         if use_cuda:
             sent_lens_tensor = sent_lens_tensor.cuda()
+
+        batch_size = sent_lens_tensor.shape[0]
 
         sent_lens_flat = sent_lens_tensor.view(-1, sent_lens_tensor.shape[-1])
         max_sent_len = sent_lens_flat.view(-1).max().item()
@@ -275,7 +276,7 @@ class SentenceFilterer(nn.Module):
         # Pad sentences in each doc
         max_sents_in_doc = max([x.shape[1] for x in doc_sents])
         doc_num_sents = []
-        doc_sents_mask = torch.zeros(config.batch_size, max_sents_in_doc, device=hidden.device)
+        doc_sents_mask = torch.zeros(batch_size, max_sents_in_doc, device=hidden.device)
         for i, sents in enumerate(doc_sents):
             doc_num_sents.append(sents.shape[1])
             doc_sents_mask[i, :sents.shape[1]] = torch.ones(sents.shape[1], device=hidden.device)
@@ -304,7 +305,7 @@ class SentenceFilterer(nn.Module):
         unsorted_output.scatter_(0, indxs_for_output, out)
 
         sentence_scores = self.sentence_filterer(out.contiguous().view(-1, out.shape[2]))
-        sentence_scores = sentence_scores.view(config.batch_size, -1)
+        sentence_scores = sentence_scores.view(batch_size, -1)
 
         norm_scores = F.softmax(sentence_scores, dim=1) * doc_sents_mask
         normalization_factor = norm_scores.sum(1, keepdim=True)
@@ -359,6 +360,7 @@ class Decoder(nn.Module):
 
     def forward(self, y_t_1, s_t_1, encoder_output, section_output, enc_padding_mask,
                 c_t_1, extra_zeros, enc_batch_extend_vocab, coverage, gamma):
+        batch_size = y_t_1.shape[0]
         y_t_1_embd = self.embedding(y_t_1)
         x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
 
@@ -370,7 +372,7 @@ class Decoder(nn.Module):
 
         # TODO: Use section padding if we support more than 4 sections
         beta = self.section_attention(s_t_hat, section_output, coverage=coverage)
-        encoder_output = encoder_output.view(config.batch_size, config.max_num_sections, *encoder_output.shape[1:])
+        encoder_output = encoder_output.view(batch_size, config.max_num_sections, *encoder_output.shape[1:])
         c_t, attn_dist, coverage = self.word_attention(s_t_hat, encoder_output,
                                                        enc_padding_mask=enc_padding_mask, coverage=coverage,
                                                        beta=beta, gamma=gamma)
