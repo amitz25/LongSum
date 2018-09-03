@@ -1,6 +1,6 @@
 #Content of this file is copied from https://github.com/abisee/pointer-generator/blob/master/
 import os
-import pyrouge
+from sumeval.metrics.rouge import RougeCalculator
 import logging
 import tensorflow as tf
 
@@ -19,28 +19,29 @@ def make_html_safe(s):
 
 
 def rouge_eval(ref_dir, dec_dir):
-  r = pyrouge.Rouge155()
-  r.model_filename_pattern = '#ID#_reference.txt'
-  r.system_filename_pattern = '(\d+)_decoded.txt'
-  r.model_dir = ref_dir
-  r.system_dir = dec_dir
-  logging.getLogger('global').setLevel(logging.WARNING) # silence pyrouge logging
-  rouge_results = r.convert_and_evaluate()
-  return r.output_to_dict(rouge_results)
+  rouge = RougeCalculator(stopwords=True, lang="en")
+  rouge_1 = 0; rouge_2 = 0; rouge_3 = 0; rouge_l = 0
+  num_files = len(os.listdir(ref_dir))
+  for filename in os.listdir(ref_dir):
+    file_id = filename[:6]
+    ref_file = os.path.join(ref_dir, filename)
+    dec_file = os.path.join(dec_dir, '%s_decoded.txt' % file_id)
+    ref_sum = ' '.join([line for line in open(ref_file, 'r').readlines()])
+    dec_sum = ' '.join([line for line in open(dec_file, 'r').readlines()])
+    rouge_1 += rouge.rouge_n(dec_sum, ref_sum, n=1)
+    rouge_2 += rouge.rouge_n(dec_sum, ref_sum, n=2)
+    rouge_3 += rouge.rouge_n(dec_sum, ref_sum, n=3)
+    rouge_l += rouge.rouge_l(dec_sum, ref_sum)
+  return {'1': 100 * rouge_1 / num_files,
+          '2': 100 * rouge_2 / num_files,
+          '3': 100 * rouge_3 / num_files,
+          'l': 100 * rouge_l / num_files}
 
 
 def rouge_log(results_dict, dir_to_write):
   log_str = ""
-  for x in ["1","2","l"]:
-    log_str += "\nROUGE-%s:\n" % x
-    for y in ["f_score", "recall", "precision"]:
-      key = "rouge_%s_%s" % (x,y)
-      key_cb = key + "_cb"
-      key_ce = key + "_ce"
-      val = results_dict[key]
-      val_cb = results_dict[key_cb]
-      val_ce = results_dict[key_ce]
-      log_str += "%s: %.4f with confidence interval (%.4f, %.4f)\n" % (key, val, val_cb, val_ce)
+  for x in ["1", "2", "3", "l"]:
+    log_str += "\nROUGE-%s: %.4f\n" % (x, results_dict[x])
   print(log_str)
   results_file = os.path.join(dir_to_write, "ROUGE_results.txt")
   print("Writing final ROUGE results to %s..."%(results_file))
