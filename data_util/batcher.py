@@ -154,7 +154,6 @@ class Batch(object):
     self.sim_scores_mask = np.zeros((self.batch_size, max_sim_score_len), dtype=np.float32)
 
     # Fill in the numpy arrays
-    # TODO: Verify that it's always at least 4 sections
     assert min([len(x.enc_inputs) for x in example_list]) == 4, "Invalid num of sections!"
 
     for i, ex in enumerate(example_list):

@@ -195,7 +195,6 @@ class SectionEncoder(nn.Module):
         hidden = input[0].view(-1, config.max_num_sections, input[0].shape[2])
         cell = input[1].view(-1, config.max_num_sections, input[1].shape[2])
 
-        # TODO: Make sure we don't need just hidden
         h_c = torch.cat((hidden, cell), dim=2)
         output, hidden = self.lstm(h_c)
 
